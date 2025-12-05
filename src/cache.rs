@@ -8,12 +8,13 @@ use std::{
 };
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutEntry,
-    BindingResource, BindingType, BlendState, Buffer, BufferBindingType, ColorTargetState,
-    ColorWrites, DepthStencilState, Device, FilterMode, FragmentState, MultisampleState,
-    PipelineCompilationOptions, PipelineLayout, PipelineLayoutDescriptor, PrimitiveState,
-    PrimitiveTopology, RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType,
-    SamplerDescriptor, ShaderModule, ShaderModuleDescriptor, ShaderSource, ShaderStages,
-    TextureFormat, TextureSampleType, TextureView, TextureViewDimension, VertexFormat, VertexState,
+    BindingResource, BindingType, BlendComponent, BlendFactor, BlendOperation, BlendState, Buffer,
+    BufferBindingType, ColorTargetState, ColorWrites, DepthStencilState, Device, FilterMode,
+    FragmentState, MultisampleState, PipelineCompilationOptions, PipelineLayout,
+    PipelineLayoutDescriptor, PrimitiveState, PrimitiveTopology, RenderPipeline,
+    RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderModule,
+    ShaderModuleDescriptor, ShaderSource, ShaderStages, TextureFormat, TextureSampleType,
+    TextureView, TextureViewDimension, VertexFormat, VertexState,
 };
 
 /// A cache to share common resources (e.g., pipelines, layouts, shaders) between multiple text
@@ -232,7 +233,17 @@ impl Cache {
                         entry_point: Some("fs_main"),
                         targets: &[Some(ColorTargetState {
                             format,
-                            blend: Some(BlendState::ALPHA_BLENDING),
+                            // Dual-source blending for subpixel text rendering
+                            // src0 = text color, src1 = coverage mask (from shader)
+                            // final = src0 * src1 + dst * (1 - src1)
+                            blend: Some(BlendState {
+                                color: BlendComponent {
+                                    src_factor: BlendFactor::Src1,
+                                    dst_factor: BlendFactor::OneMinusSrc1,
+                                    operation: BlendOperation::Add,
+                                },
+                                alpha: BlendComponent::REPLACE,
+                            }),
                             write_mask: ColorWrites::default(),
                         })],
                         compilation_options: PipelineCompilationOptions::default(),

@@ -1,3 +1,5 @@
+enable dual_source_blending;
+
 struct VertexInput {
     @builtin(vertex_index) vertex_idx: u32,
     @location(0) pos: vec2<i32>,
@@ -102,6 +104,10 @@ fn vs_main(in_vert: VertexInput) -> VertexOutput {
             dim = textureDimensions(mask_atlas_texture);
             break;
         }
+        case 2u: {
+            dim = textureDimensions(color_atlas_texture);
+            break;
+        }
         default: {}
     }
 
@@ -112,17 +118,92 @@ fn vs_main(in_vert: VertexInput) -> VertexOutput {
     return vert_output;
 }
 
+struct FragmentOutput {
+    @location(0) @blend_src(0) color: vec4<f32>,
+    @location(0) @blend_src(1) mask: vec4<f32>,
+}
+
+// Gamma correction helpers from swash_demo
+fn luma(color: vec3<f32>) -> f32 {
+    return color.x * 0.25 + color.y * 0.72 + color.z * 0.075;
+}
+
+fn gamma_correct(luma_val: f32, alpha: f32, gamma: f32, contrast: f32) -> f32 {
+    let inverse_luma = 1.0 - luma_val;
+    let inverse_alpha = 1.0 - alpha;
+    let g = pow(luma_val * alpha + inverse_luma * inverse_alpha, gamma);
+    let a_raw = (g - inverse_luma) / (luma_val - inverse_luma + 0.0001); // Add epsilon to avoid division by zero
+    let a = a_raw + ((1.0 - a_raw) * contrast * a_raw);
+    return clamp(a, 0.0, 1.0);
+}
+
+fn gamma_correct_subpx(text_color: vec3<f32>, mask: vec3<f32>) -> vec3<f32> {
+    let l = luma(text_color);
+    let inverse_luma = 1.0 - l;
+    // Adjust gamma and contrast to match Chrome's bolder appearance
+    // Higher contrast = bolder text
+    let gamma = mix(1.0 / 1.15, 1.0 / 2.2, inverse_luma);
+    let contrast = mix(0.3, 1.0, inverse_luma);
+    return vec3<f32>(
+        gamma_correct(l, mask.x, gamma, contrast),
+        gamma_correct(l, mask.y, gamma, contrast),
+        gamma_correct(l, mask.z, gamma, contrast)
+    );
+}
+
+// Apply FreeType-style 5-tap LCD filter to subpixel coverage
+// Filter weights: {16, 64, 112, 64, 16} / 208 = {0.077, 0.308, 0.538, 0.308, 0.077}
+// IMPORTANT: Atlas stores inverted coverage (white=no text, black=text), so we must invert before filtering
+fn apply_lcd_filter(uv: vec2<f32>) -> vec3<f32> {
+    let atlas_size = vec2<f32>(textureDimensions(color_atlas_texture));
+    let texel_size = 1.0 / atlas_size;
+
+    // Sample 5 horizontal pixels and invert them (1.0 - x to get actual coverage)
+    let c0 = 1.0 - textureSampleLevel(color_atlas_texture, atlas_sampler, uv + vec2<f32>(-2.0, 0.0) * texel_size, 0.0).rgb;
+    let c1 = 1.0 - textureSampleLevel(color_atlas_texture, atlas_sampler, uv + vec2<f32>(-1.0, 0.0) * texel_size, 0.0).rgb;
+    let c2 = 1.0 - textureSampleLevel(color_atlas_texture, atlas_sampler, uv, 0.0).rgb;
+    let c3 = 1.0 - textureSampleLevel(color_atlas_texture, atlas_sampler, uv + vec2<f32>(1.0, 0.0) * texel_size, 0.0).rgb;
+    let c4 = 1.0 - textureSampleLevel(color_atlas_texture, atlas_sampler, uv + vec2<f32>(2.0, 0.0) * texel_size, 0.0).rgb;
+
+    // Apply the 5-tap filter weights to actual coverage values
+    let filtered = (c0 * 16.0 + c1 * 64.0 + c2 * 112.0 + c3 * 64.0 + c4 * 16.0) / 208.0;
+
+    // Return filtered coverage (still non-inverted, ready for gamma correction)
+    return filtered;
+}
+
 @fragment
-fn fs_main(in_frag: VertexOutput) -> @location(0) vec4<f32> {
+fn fs_main(in_frag: VertexOutput) -> FragmentOutput {
+    var output: FragmentOutput;
+
     switch in_frag.content_type {
         case 0u: {
-            return textureSampleLevel(color_atlas_texture, atlas_sampler, in_frag.uv, 0.0);
+            // Color glyphs
+            let color = textureSampleLevel(color_atlas_texture, atlas_sampler, in_frag.uv, 0.0);
+            output.color = color;
+            output.mask = vec4<f32>(1.0);
         }
         case 1u: {
-            return vec4<f32>(in_frag.color.rgb, in_frag.color.a * textureSampleLevel(mask_atlas_texture, atlas_sampler, in_frag.uv, 0.0).x);
+            // Grayscale mask
+            let mask_val = textureSampleLevel(mask_atlas_texture, atlas_sampler, in_frag.uv, 0.0).x;
+            output.color = in_frag.color;
+            output.mask = vec4<f32>(mask_val);
+        }
+        case 2u: {
+            // Subpixel rendering with LCD filter and gamma correction
+            // Coverage atlas stores inverted values (white=no text, black=text)
+            // First apply the 5-tap LCD filter to smooth the coverage
+            let coverage = apply_lcd_filter(in_frag.uv);
+            // Then apply gamma correction like swash_demo
+            let corrected_mask = gamma_correct_subpx(in_frag.color.rgb, coverage);
+            output.color = vec4<f32>(in_frag.color.rgb, 1.0);
+            output.mask = vec4<f32>(corrected_mask, 1.0);
         }
         default: {
-            return vec4<f32>(0.0);
+            output.color = vec4<f32>(0.0);
+            output.mask = vec4<f32>(0.0);
         }
     }
+
+    return output;
 }

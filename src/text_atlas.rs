@@ -353,7 +353,7 @@ impl TextAtlas {
                 scale_factor,
                 rasterize_custom_glyph,
             ),
-            ContentType::Color => self.color_atlas.grow(
+            ContentType::Color | ContentType::SubpixelMask => self.color_atlas.grow(
                 state,
                 font_system,
                 cache,
@@ -371,7 +371,7 @@ impl TextAtlas {
 
     pub(crate) fn inner_for_content_mut(&mut self, content_type: ContentType) -> &mut InnerAtlas {
         match content_type {
-            ContentType::Color => &mut self.color_atlas,
+            ContentType::Color | ContentType::SubpixelMask => &mut self.color_atlas,
             ContentType::Mask => &mut self.mask_atlas,
         }
     }

@@ -278,10 +278,7 @@ impl TextRenderer {
                             let content_type = match image.content {
                                 SwashContent::Color => ContentType::Color,
                                 SwashContent::Mask => ContentType::Mask,
-                                SwashContent::SubpixelMask => {
-                                    // Not implemented yet, but don't panic if this happens.
-                                    ContentType::Mask
-                                }
+                                SwashContent::SubpixelMask => ContentType::SubpixelMask,
                             };
 
                             Some(GetGlyphImageResult {

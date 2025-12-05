@@ -104,6 +104,8 @@ pub enum ContentType {
     Color,
     /// Each pixel contains a single 8 bit channel
     Mask,
+    /// Each pixel contains RGB subpixel data (32 bits rgba, but used for LCD AA)
+    SubpixelMask,
 }
 
 impl ContentType {
@@ -112,6 +114,23 @@ impl ContentType {
         match self {
             Self::Color => 4,
             Self::Mask => 1,
+            Self::SubpixelMask => 4,
         }
+    }
+
+    /// Convert to u16 for shader
+    pub const fn to_u16(&self) -> u16 {
+        match self {
+            Self::Color => 0,
+            Self::Mask => 1,
+            Self::SubpixelMask => 2,
+        }
+    }
+}
+
+// Ensure we can cast directly
+impl From<ContentType> for u16 {
+    fn from(ct: ContentType) -> Self {
+        ct.to_u16()
     }
 }
