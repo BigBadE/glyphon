@@ -4,6 +4,8 @@ use glyphon::{
     TextAtlas, TextBounds, TextRenderer, Viewport,
 };
 use std::sync::Arc;
+
+type RasterizeSvgFn = Box<dyn Fn(RasterizeCustomGlyphRequest) -> Option<RasterizedCustomGlyph>>;
 use wgpu::{
     CommandEncoderDescriptor, CompositeAlphaMode, DeviceDescriptor, Instance, InstanceDescriptor,
     LoadOp, MultisampleState, Operations, PresentMode, RenderPassColorAttachment,
@@ -34,7 +36,7 @@ struct WindowState {
     atlas: glyphon::TextAtlas,
     text_renderer: glyphon::TextRenderer,
     text_buffer: glyphon::Buffer,
-    rasterize_svg: Box<dyn Fn(RasterizeCustomGlyphRequest) -> Option<RasterizedCustomGlyph>>,
+    rasterize_svg: RasterizeSvgFn,
     // Make sure that the winit window is last in the struct so that
     // it is dropped after the wgpu surface is dropped, otherwise the
     // program may crash when closed. This is probably a bug in wgpu.

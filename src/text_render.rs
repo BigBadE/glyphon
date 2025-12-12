@@ -1,3 +1,6 @@
+#![allow(clippy::excessive_nesting)]
+#![allow(clippy::too_many_arguments)]
+
 use crate::{
     custom_glyph::CustomGlyphCacheKey, ColorMode, ContentType, FontSystem, GlyphDetails,
     GlyphToRender, GpuCacheStatus, PrepareError, RasterizeCustomGlyphRequest,
@@ -281,13 +284,15 @@ impl TextRenderer {
                                 SwashContent::SubpixelMask => ContentType::SubpixelMask,
                             };
 
+                            let data = image.data;
+
                             Some(GetGlyphImageResult {
                                 content_type,
                                 top: image.placement.top as i16,
                                 left: image.placement.left as i16,
                                 width: image.placement.width as u16,
                                 height: image.placement.height as u16,
-                                data: image.data,
+                                data,
                             })
                         },
                         &mut metadata_to_depth,

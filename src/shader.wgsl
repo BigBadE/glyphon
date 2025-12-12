@@ -143,7 +143,7 @@ fn gamma_correct_subpx(text_color: vec3<f32>, mask: vec3<f32>) -> vec3<f32> {
     // Adjust gamma and contrast to match Chrome's bolder appearance
     // Higher contrast = bolder text
     let gamma = mix(1.0 / 1.15, 1.0 / 2.2, inverse_luma);
-    let contrast = mix(0.3, 1.0, inverse_luma);
+    let contrast = 2.0;
     return vec3<f32>(
         gamma_correct(l, mask.x, gamma, contrast),
         gamma_correct(l, mask.y, gamma, contrast),
@@ -151,25 +151,21 @@ fn gamma_correct_subpx(text_color: vec3<f32>, mask: vec3<f32>) -> vec3<f32> {
     );
 }
 
-// Apply FreeType-style 5-tap LCD filter to subpixel coverage
-// Filter weights: {16, 64, 112, 64, 16} / 208 = {0.077, 0.308, 0.538, 0.308, 0.077}
-// IMPORTANT: Atlas stores inverted coverage (white=no text, black=text), so we must invert before filtering
+// Apply 5-tap FreeType-style LCD filter for subpixel antialiasing
+// Filter weights: [0x10, 0x40, 0x70, 0x40, 0x10] normalized to [0.0625, 0.25, 0.4375, 0.25, 0.0625]
 fn apply_lcd_filter(uv: vec2<f32>) -> vec3<f32> {
-    let atlas_size = vec2<f32>(textureDimensions(color_atlas_texture));
-    let texel_size = 1.0 / atlas_size;
+    let dim = vec2<f32>(textureDimensions(color_atlas_texture));
+    let texel_size = 1.0 / dim;
 
-    // Sample 5 horizontal pixels and invert them (1.0 - x to get actual coverage)
-    let c0 = 1.0 - textureSampleLevel(color_atlas_texture, atlas_sampler, uv + vec2<f32>(-2.0, 0.0) * texel_size, 0.0).rgb;
-    let c1 = 1.0 - textureSampleLevel(color_atlas_texture, atlas_sampler, uv + vec2<f32>(-1.0, 0.0) * texel_size, 0.0).rgb;
-    let c2 = 1.0 - textureSampleLevel(color_atlas_texture, atlas_sampler, uv, 0.0).rgb;
-    let c3 = 1.0 - textureSampleLevel(color_atlas_texture, atlas_sampler, uv + vec2<f32>(1.0, 0.0) * texel_size, 0.0).rgb;
-    let c4 = 1.0 - textureSampleLevel(color_atlas_texture, atlas_sampler, uv + vec2<f32>(2.0, 0.0) * texel_size, 0.0).rgb;
+    // Sample 5 horizontal pixels
+    let s0 = textureSampleLevel(color_atlas_texture, atlas_sampler, uv + vec2<f32>(-2.0 * texel_size.x, 0.0), 0.0).rgb;
+    let s1 = textureSampleLevel(color_atlas_texture, atlas_sampler, uv + vec2<f32>(-1.0 * texel_size.x, 0.0), 0.0).rgb;
+    let s2 = textureSampleLevel(color_atlas_texture, atlas_sampler, uv, 0.0).rgb;
+    let s3 = textureSampleLevel(color_atlas_texture, atlas_sampler, uv + vec2<f32>(1.0 * texel_size.x, 0.0), 0.0).rgb;
+    let s4 = textureSampleLevel(color_atlas_texture, atlas_sampler, uv + vec2<f32>(2.0 * texel_size.x, 0.0), 0.0).rgb;
 
-    // Apply the 5-tap filter weights to actual coverage values
-    let filtered = (c0 * 16.0 + c1 * 64.0 + c2 * 112.0 + c3 * 64.0 + c4 * 16.0) / 208.0;
-
-    // Return filtered coverage (still non-inverted, ready for gamma correction)
-    return filtered;
+    // Apply FreeType default filter weights
+    return s0 * 0.0625 + s1 * 0.25 + s2 * 0.4375 + s3 * 0.25 + s4 * 0.0625;
 }
 
 @fragment
@@ -190,12 +186,18 @@ fn fs_main(in_frag: VertexOutput) -> FragmentOutput {
             output.mask = vec4<f32>(mask_val);
         }
         case 2u: {
-            // Subpixel rendering with LCD filter and gamma correction
-            // Coverage atlas stores inverted values (white=no text, black=text)
-            // First apply the 5-tap LCD filter to smooth the coverage
-            let coverage = apply_lcd_filter(in_frag.uv);
-            // Then apply gamma correction like swash_demo
-            let corrected_mask = gamma_correct_subpx(in_frag.color.rgb, coverage);
+            // Subpixel rendering - atlas contains LCD-filtered coverage from Swash
+            //
+            // WORKAROUND: Sample as .bgr instead of .rgb to correct channel swap issue.
+            // Root cause: On Vulkan/Windows, when sampling from Rgba8UnormSrgb textures,
+            // the R and B channels appear swapped despite correct upload format.
+            // This may be a driver quirk or Vulkan/wgpu behavior on Windows.
+            // Swash outputs RGB data, but when sampled it returns BGR, so we swap here.
+            let coverage = textureSampleLevel(color_atlas_texture, atlas_sampler, in_frag.uv, 0.0).bgr;
+            // First apply power curve to boost mid-tones
+            let gamma_boosted = pow(coverage, vec3<f32>(0.6, 0.6, 0.6));
+            // Then apply gamma correction with contrast
+            let corrected_mask = gamma_correct_subpx(in_frag.color.rgb, gamma_boosted);
             output.color = vec4<f32>(in_frag.color.rgb, 1.0);
             output.mask = vec4<f32>(corrected_mask, 1.0);
         }

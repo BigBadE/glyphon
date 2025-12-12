@@ -1,3 +1,5 @@
+#![allow(clippy::needless_update)]
+
 use wgpu::{BackendOptions, Dx12BackendOptions};
 
 use pollster::block_on;
@@ -8,6 +10,7 @@ pub struct State {
 }
 
 impl State {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),

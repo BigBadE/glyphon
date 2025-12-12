@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use cosmic_text::{Attrs, Buffer, Color, Family, FontSystem, Metrics, Shaping, SwashCache};
 use criterion::{criterion_group, criterion_main, Criterion};
 use glyphon::{
@@ -96,19 +98,18 @@ fn run_bench(ctx: &mut Criterion) {
                     })
                     .collect();
 
-                criterion::black_box(
-                    text_renderer
-                        .prepare(
-                            &state.device,
-                            &state.queue,
-                            &mut font_system,
-                            &mut atlas,
-                            &viewport,
-                            text_areas,
-                            &mut swash_cache,
-                        )
-                        .unwrap(),
-                );
+                text_renderer
+                    .prepare(
+                        &state.device,
+                        &state.queue,
+                        &mut font_system,
+                        &mut atlas,
+                        &viewport,
+                        text_areas,
+                        &mut swash_cache,
+                    )
+                    .unwrap();
+                criterion::black_box(());
 
                 atlas.trim();
             })
